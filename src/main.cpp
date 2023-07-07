@@ -87,6 +87,8 @@ bool circulationFanStatus = false;
 // Measure PV voltage
 double voltage = 0;
 
+int stateOfChargeValue = 0;
+
 //**fwd declerations**//
 
 void setupTempHumid();
@@ -104,6 +106,7 @@ void sensorHeater();
 void readPvVoltage();
 void checkWiFiStaus();
 void restart();
+int stateOfCharge(double voltage);
 
 //---------------------------------------------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------------------------------------------
@@ -291,7 +294,7 @@ void setupOtaUpdateandServer()
             "\n\nThe average daily temperature is: " + String(averageDailyTemp,2) + " C (Updated every minute)"+ //updated houly & reset at midnight
             "\nThe average daily Humidity is: " + String(averageDailyHumidity,2) + " %RH (Updated every minute)"+ //updated houly & reset at midnight
 
-            "\nThe PV charging voltage is currently: " + String(voltage,2) + "v" +
+            "\nThe battery state of charge is currently: " + String(stateOfChargeValue) + "%" +
 
             "\n\nLoop count: " + count +
             "\nFree heap: " + ESP.getFreeHeap()
@@ -385,7 +388,7 @@ void fanStatus()
       fanSpeed = 0;
     }
 
-     else if (voltage <= 12.1)
+    else if (voltage <= 12.1)
     {
 
       digitalWrite(fanRelaySignalPin, HIGH);
@@ -498,6 +501,8 @@ void readPvVoltage()
   voltage = (4095 / 3.3) * voltage; // Convert adjusted voltage back to analoge value
 
   voltage = (voltage) / 4095 * 30 * 247.191 / 220; // Convert to PV voltage
+
+  stateOfCharge(voltage);
 }
 
 //---------------------------------------------
@@ -571,4 +576,70 @@ void checkWiFiStaus()
     WiFi.disconnect();
     WiFi.reconnect();
   }
+}
+
+int stateOfCharge(double voltage)
+{
+
+  if (voltage >= 12.7)
+  {
+
+    stateOfChargeValue = 100;
+  }
+
+  else if (voltage < 12.7 && voltage >= 12.62)
+  {
+
+    stateOfChargeValue = 90;
+  }
+
+  else if (voltage < 12.62 && voltage >= 12.50)
+  {
+
+    stateOfChargeValue = 80;
+  }
+
+  else if (voltage < 12.50 && voltage >= 12.37)
+  {
+
+    stateOfChargeValue = 70;
+  }
+
+  else if (voltage < 12.37 && voltage >= 12.24)
+  {
+
+    stateOfChargeValue = 60;
+  }
+
+  else if (voltage < 12.24 && voltage >= 12.10)
+  {
+
+    stateOfChargeValue = 50;
+  }
+
+  else if (voltage < 12.10 && voltage >= 11.96)
+  {
+
+    stateOfChargeValue = 40;
+  }
+
+  else if (voltage < 11.96 && voltage >= 11.81)
+  {
+
+    stateOfChargeValue = 30;
+  }
+
+  else if (voltage < 11.81 && voltage >= 11.66)
+  {
+
+    stateOfChargeValue = 20;
+  }
+
+  else if (voltage < 11.66)
+  {
+
+    stateOfChargeValue = 10;
+  }
+
+  return stateOfChargeValue;
 }
