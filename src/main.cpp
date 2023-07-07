@@ -21,7 +21,7 @@ const int circulationFanPWMPin = 32; // PWM Control pin
 
 const int fanRelaySignalPin = 19; // Relay control pin
 
-int fanSpeed = 0;
+float fanSpeed = 0;
 
 String Circulation_fanStatus = "Setting up";
 
@@ -35,6 +35,8 @@ const int resolution = 8;
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 float currentTemp = 0;
 float currentHumid = 0;
+float previousTemp = 0;
+float previousHumid = 0;
 float averageDailyTemp = 0;
 float averageDailyHumidity = 0;
 float tempRunningTotal = 0;
@@ -48,7 +50,7 @@ unsigned long heaterTimeFinish = 0;
 
 // Wifi stuff
 const char *ssid = "The Internet";
-const char *password = "Password";
+const char *password = "tpSnbqxF4fvf";
 
 AsyncWebServer server(80); // OTA Async webserver
 
@@ -68,9 +70,10 @@ int se = 0;
 char dateTime[24];
 String dateTimeStamp = "null";
 String espStartTimeStamp = "null";
-uint8_t miCount = 1;
 uint8_t nowMi = 0;
 uint8_t nowDy = 0;
+
+bool espStartTimeStampFlag = false;
 
 // Millis varariables
 unsigned long millisNow = 0;
@@ -99,6 +102,7 @@ void recvMsg(uint8_t *data, size_t len);
 void setupWebSerial();
 void sensorHeater();
 void readPvVoltage();
+void checkWiFiStaus();
 void restart();
 
 //---------------------------------------------------------------------------------------------------------------------------
@@ -131,9 +135,6 @@ void setup()
   setupWebSerial();
 
   delay(10);
-
-
-
 }
 
 //---------------------------------------------------------------------------------------------------------------------------
@@ -141,6 +142,16 @@ void setup()
 
 void loop()
 {
+
+  if (espStartTimeStampFlag)
+  {
+
+    requestTimeStamp();
+    espStartTimeStamp = dateTime;
+
+    espStartTimeStampFlag = false;
+  }
+
   checkTime(); // Check if 1 min has passed and start & check greenhouse processes
   // sensorHeater();
 
@@ -150,6 +161,7 @@ void loop()
     checkTempHumid();
     fanStatus();
     readPvVoltage();
+    checkWiFiStaus();
     greenhouseProcess = false; // reset greenHouse Processes
   }
 }
@@ -221,48 +233,39 @@ void setDateTime()
 
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
-    struct tm timeinfo;
-    getLocalTime(&timeinfo);
-
-    yr = timeinfo.tm_year + 1900;
-
-    int ntp_retry_cnt = 0;
-    char ntp_retry_message[50];
-
-    if (yr == 1970)
+    if (configTime)
     {
-      Serial.println("Failed to retrieve NTP server time"); // Try again
-      while ((yr == 1970) && (ntp_retry_cnt < NTP_RETRY))
-      {
-        Serial.print(".");
-        delay(500);
-        sprintf(ntp_retry_message, "Attempt %i of %i", ntp_retry_cnt, NTP_RETRY);
-        Serial.println(ntp_retry_message);
-
-        //struct tm timeinfo;
-        getLocalTime(&timeinfo);
-
-        yr = timeinfo.tm_year + 1900;
-        ntp_retry_cnt++;
-      }
-    }
-
-    if (yr != 1970)
-    {
-
-      //struct tm timeinfo;
+      struct tm timeinfo;
       getLocalTime(&timeinfo);
 
       yr = timeinfo.tm_year + 1900;
-      mt = timeinfo.tm_mon + 1;
-      dy = timeinfo.tm_mday;
-      hr = timeinfo.tm_hour;
-      mi = timeinfo.tm_min;
-      se = timeinfo.tm_sec;
 
-      sprintf(dateTime, "%02i/%02i/%02i, %02i:%02i:%02i", dy, mt, yr, hr, mi, se);
-      espStartTimeStamp = dateTime;
-      Serial.println("NTP server sync successful");
+      int ntp_retry_cnt = 0;
+      char ntp_retry_message[50];
+
+      if (yr == 1970)
+      {
+        Serial.println("Failed to retrieve NTP server time"); // Try again
+        while ((yr == 1970) && (ntp_retry_cnt < NTP_RETRY))
+        {
+          Serial.print(".");
+          delay(500);
+          sprintf(ntp_retry_message, "Attempt %i of %i", ntp_retry_cnt, NTP_RETRY);
+          Serial.println(ntp_retry_message);
+
+          // struct tm timeinfo;
+          getLocalTime(&timeinfo);
+
+          yr = timeinfo.tm_year + 1900;
+          ntp_retry_cnt++;
+        }
+      }
+
+      if (yr != 1970)
+      {
+        Serial.println("NTP server sync successful");
+        espStartTimeStampFlag = true;
+      }
     }
   }
 }
@@ -278,7 +281,7 @@ void setupOtaUpdateandServer()
             "\nEsp32 date & time now: " + dateTimeStamp +
 
             "\n\nThe circulations fans are: " + Circulation_fanStatus + 
-            "\nFan speed set at :" + fanSpeed +
+            "\nFan speed set at :" + String(fanSpeed,0) + "%" +
 
             "\n\nThe temp & humidity sensor is: " + shtConnected + 
             "\nThe temperature is: " + currentTemp + " C"+ 
@@ -318,7 +321,6 @@ void checkTime()
 
     if (mi != nowMi)
     {
-
       nowMi = mi;
 
       greenhouseProcess = true;
@@ -353,7 +355,6 @@ void fanStatus()
     digitalWrite(fanRelaySignalPin, HIGH);
     circulationFanStatus = true;
     Circulation_fanStatus = "ON";
-    // Check temp and adjust intake fan
 
     if (currentTemp > 25 && currentTemp < 27)
     {
@@ -381,6 +382,17 @@ void fanStatus()
       digitalWrite(fanRelaySignalPin, LOW);
       circulationFanStatus = false;
       Circulation_fanStatus = "OFF";
+      fanSpeed = 0;
+    }
+
+     else if (voltage <= 12.1)
+    {
+
+      digitalWrite(fanRelaySignalPin, HIGH);
+      circulationFanStatus = true;
+      Circulation_fanStatus = "ON - low sunlight mode";
+      ledcWrite(circulationFanChannel, 50);
+      fanSpeed = 50;
     }
   }
 
@@ -390,7 +402,10 @@ void fanStatus()
     digitalWrite(fanRelaySignalPin, LOW);
     circulationFanStatus = false;
     Circulation_fanStatus = "OFF";
+    fanSpeed = 0;
   }
+
+  fanSpeed = (fanSpeed) / 255 * 100; // Show duty as a %age
 }
 //---------------------------------------------
 
@@ -400,15 +415,31 @@ void checkTempHumid() // Get Temp & Humidity Data
   currentTemp = (sht31.readTemperature());
   currentHumid = (sht31.readHumidity());
 
-  tempRunningTotal += currentTemp;
-  humidRunningTotal += currentHumid;
+  if (((currentTemp >= -40) && (currentTemp <= 125)) && ((currentHumid >= 0) && (currentHumid <= 100)))
+  { // update only if number is valid
 
-  averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
-  averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+    tempRunningTotal += currentTemp;
+    humidRunningTotal += currentHumid;
+
+    averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
+    averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+
+    previousTemp = currentTemp;   // used to store previous value in case of null value
+    previousHumid = currentHumid; // used to store previous value in case of null value
+  }
+
+  else
+  { // if last reading was invalid, use previous temp and humidity reading
+
+    tempRunningTotal += previousTemp;
+    humidRunningTotal += previousHumid;
+
+    averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
+    averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+  }
 
   if (dy != nowDy) // midinght reset hour counter
   {
-    miCount = 1;
     count = 1;
     nowDy = dy;
 
@@ -419,41 +450,41 @@ void checkTempHumid() // Get Temp & Humidity Data
 
 //---------------------------------------------
 
-void sensorHeater() // turn on humidity evaporation heater every 10 min for 30sec (built innto sensor)
-{
+// void sensorHeater() // turn on humidity evaporation heater every 10 min for 30sec (built innto sensor)
+// {
 
-  heaterTimer = millis();
+//   heaterTimer = millis();
 
-  if (((mi % 10 == 0) && (enableHeater == false)) || ((currentHumid >= 85) && (enableHeater == false))) // turn on every 10 mins
-  {
-    enableHeater = true;
-    heaterTimeStart = millis();
+//   if (((mi % 10 == 0) && (enableHeater == false)) || ((currentHumid >= 85) && (enableHeater == false))) // turn on every 10 mins
+//   {
+//     enableHeater = true;
+//     heaterTimeStart = millis();
 
-    if (DEBUG)
-    {
-      Serial.println("Heater on");
-    }
-  }
+//     if (DEBUG)
+//     {
+//       Serial.println("Heater on");
+//     }
+//   }
 
-  if (((heaterTimer - heaterTimeStart) >= 30000) && (enableHeater == true)) // turn off after 30 seconds
-  {
+//   if (((heaterTimer - heaterTimeStart) >= 30000) && (enableHeater == true)) // turn off after 30 seconds
+//   {
 
-    sht31.heater(enableHeater);
+//     sht31.heater(enableHeater);
 
-    heaterTimeFinish = millis();
-  }
+//     heaterTimeFinish = millis();
+//   }
 
-  if ((heaterTimer - heaterTimeFinish >= 30000) && (enableHeater == true))
-  {
-    enableHeater = false;
-    sht31.heater(enableHeater);
+//   if ((heaterTimer - heaterTimeFinish >= 30000) && (enableHeater == true))
+//   {
+//     enableHeater = false;
+//     sht31.heater(enableHeater);
 
-    if (DEBUG)
-    {
-      Serial.println("Heater off");
-    }
-  }
-}
+//     if (DEBUG)
+//     {
+//       Serial.println("Heater off");
+//     }
+//   }
+// }
 
 //---------------------------------------------
 
@@ -523,7 +554,21 @@ void recvMsg(uint8_t *data, size_t len)
   }
 }
 
+//---------------------------------------------
+
 void restart()
 {
   ESP.restart();
+}
+
+//---------------------------------------------
+
+void checkWiFiStaus()
+{
+
+  if ((WiFi.status() != WL_CONNECTED))
+  {
+    WiFi.disconnect();
+    WiFi.reconnect();
+  }
 }
