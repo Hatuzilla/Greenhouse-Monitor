@@ -23,6 +23,10 @@ const int fanRelaySignalPin = 19; // Relay control pin
 
 float fanSpeed = 0;
 
+// Light stuff
+
+const int lightRelaySignalPin = 18; // Relay control pin
+
 String Circulation_fanStatus = "Setting up";
 
 // Setting PWM properties
@@ -43,6 +47,7 @@ float averageDailyTemp = 0;
 float averageDailyHumidity = 0;
 float tempRunningTotal = 0;
 float humidRunningTotal = 0;
+bool tempHumidAquired = false;
 
 String shtConnected;
 bool enableHeater = false;
@@ -140,6 +145,11 @@ void setup()
   setupWebSerial();
 
   delay(10);
+
+  // lighting setup
+
+  pinMode(lightRelaySignalPin, OUTPUT); // Pin to control circulation fan relay
+  digitalWrite(lightRelaySignalPin, LOW);
 }
 
 //---------------------------------------------------------------------------------------------------------------------------
@@ -296,8 +306,8 @@ void setupOtaUpdateandServer()
             "\n\nThe temp & humidity sensor is: " + shtConnected + 
             "\nThe temperature is: " + currentTemp + " C"+ 
             "\nThe humidity is: " + currentHumid + " RH"+ 
-            "\n\nThe min temperature is: " + minTemp + " C"+
-            "\nThe max temperature is: " + maxTemp + " C"+
+            "\n\nMin temperature: " + minTemp + " C"+
+            "\nMax temperature: " + maxTemp + " C"+
             // "\nHumidity sensor heater is : " + enableHeater +
 
             "\n\nThe average daily temperature is: " + String(averageDailyTemp,2) + " C (Updated every minute)"+ //updated houly & reset at midnight
@@ -361,13 +371,29 @@ void pmwFanSetup()
 void fanStatus()
 {
 
-  // Check time and turn air circulation fans on or off
+  // Check time and turn air circulation fans and lights on or off
+  if (hr >= 8 && hr <= 20)
+  {
+    digitalWrite(fanRelaySignalPin, HIGH);
+    circulationFanStatus = true;
+    Circulation_fanStatus = "ON";
+    ledcWrite(circulationFanChannel, 255);
+    fanSpeed = 255;
 
-  digitalWrite(fanRelaySignalPin, HIGH);
-  circulationFanStatus = true;
-  Circulation_fanStatus = "ON";
-  ledcWrite(circulationFanChannel, 255);
-  fanSpeed = 255;
+
+     digitalWrite(lightRelaySignalPin, HIGH);
+  }
+
+  else
+  {
+    digitalWrite(fanRelaySignalPin, LOW);
+    circulationFanStatus = false;
+    Circulation_fanStatus = "OFF";
+    ledcWrite(circulationFanChannel, 0);
+    fanSpeed = 0;
+
+     digitalWrite(lightRelaySignalPin, LOW);
+  }
 
   // if (hr >= 10 && hr <= 19)
 
@@ -422,31 +448,35 @@ void fanStatus()
 void checkTempHumid() // Get Temp & Humidity Data
 {
 
-  currentTemp = (sht31.readTemperature());
-  currentHumid = (sht31.readHumidity());
+  while (!tempHumidAquired)
+  {
+    currentTemp = (sht31.readTemperature());
+    currentHumid = (sht31.readHumidity());
 
-  if (((currentTemp >= -40) && (currentTemp <= 125)) && ((currentHumid >= 0) && (currentHumid <= 100)))
-  { // update only if number is valid
+    if (((currentTemp >= -40) && (currentTemp <= 125)) && ((currentHumid >= 0) && (currentHumid <= 100)))
+    { // update only if number is valid
 
-    tempRunningTotal += currentTemp;
-    humidRunningTotal += currentHumid;
+      tempRunningTotal += currentTemp;
+      humidRunningTotal += currentHumid;
 
-    averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
-    averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+      averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
+      averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
 
-    previousTemp = currentTemp;   // used to store previous value in case of null value
-    previousHumid = currentHumid; // used to store previous value in case of null value
+      previousTemp = currentTemp;   // used to store previous value in case of null value
+      previousHumid = currentHumid; // used to store previous value in case of null value
+      tempHumidAquired = true;
+    }
   }
 
-  else
-  { // if last reading was invalid, use previous temp and humidity reading
+  // else
+  // { // if last reading was invalid, use previous temp and humidity reading
 
-    tempRunningTotal += previousTemp;
-    humidRunningTotal += previousHumid;
+  //   tempRunningTotal += previousTemp;
+  //   humidRunningTotal += previousHumid;
 
-    averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
-    averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
-  }
+  //   averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
+  //   averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+  // }
 
   if (currentTemp > maxTemp) // record max temp
   {
@@ -466,6 +496,8 @@ void checkTempHumid() // Get Temp & Humidity Data
     tempRunningTotal = currentTemp;   // reset temp running total
     humidRunningTotal = currentHumid; // reset humid running total
   }
+
+  tempHumidAquired = false;
 }
 
 //---------------------------------------------
