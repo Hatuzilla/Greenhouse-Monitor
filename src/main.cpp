@@ -35,6 +35,8 @@ const int resolution = 8;
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 float currentTemp = 0;
 float currentHumid = 0;
+float maxTemp = -500;
+float minTemp = 500;
 float previousTemp = 0;
 float previousHumid = 0;
 float averageDailyTemp = 0;
@@ -161,9 +163,10 @@ void loop()
   if (greenhouseProcess == true)
   {
     count++;
+
     checkTempHumid();
+    // readPvVoltage();
     fanStatus();
-    readPvVoltage();
     checkWiFiStaus();
     greenhouseProcess = false; // reset greenHouse Processes
   }
@@ -178,7 +181,7 @@ void wifiSetup()
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi..");
-  delay(10000);
+  delay(5000);
 
   int wifi_retry_cnt = 0;
   char wifi_retry_message[50];
@@ -187,7 +190,7 @@ void wifiSetup()
   {
     Serial.println("...Connected!");
     Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
+    Serial.print(WiFi.localIP());
     delay(500);
   }
 
@@ -204,6 +207,10 @@ void wifiSetup()
       delay(2000);
     }
   }
+
+  Serial.println("...Connected!");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
 }
 
 //---------------------------------------------
@@ -289,12 +296,15 @@ void setupOtaUpdateandServer()
             "\n\nThe temp & humidity sensor is: " + shtConnected + 
             "\nThe temperature is: " + currentTemp + " C"+ 
             "\nThe humidity is: " + currentHumid + " RH"+ 
-            "\nHumidity sensor heater is : " + enableHeater +
+            "\n\nThe min temperature is: " + minTemp + " C"+
+            "\nThe max temperature is: " + maxTemp + " C"+
+            // "\nHumidity sensor heater is : " + enableHeater +
 
             "\n\nThe average daily temperature is: " + String(averageDailyTemp,2) + " C (Updated every minute)"+ //updated houly & reset at midnight
             "\nThe average daily Humidity is: " + String(averageDailyHumidity,2) + " %RH (Updated every minute)"+ //updated houly & reset at midnight
 
-            "\nThe battery state of charge is currently: " + String(stateOfChargeValue) + "%" +
+            // "\nThe battery voltage is:" + String(voltage,2) + "v" +
+            // "\nThe battery state of charge is currently: " + String(stateOfChargeValue) + "%" +
 
             "\n\nLoop count: " + count +
             "\nFree heap: " + ESP.getFreeHeap()
@@ -353,60 +363,57 @@ void fanStatus()
 
   // Check time and turn air circulation fans on or off
 
-  if (hr >= 10 && hr <= 19)
-  {
-    digitalWrite(fanRelaySignalPin, HIGH);
-    circulationFanStatus = true;
-    Circulation_fanStatus = "ON";
+  digitalWrite(fanRelaySignalPin, HIGH);
+  circulationFanStatus = true;
+  Circulation_fanStatus = "ON";
+  ledcWrite(circulationFanChannel, 255);
+  fanSpeed = 255;
 
-    if (currentTemp > 25 && currentTemp < 27)
-    {
-      digitalWrite(fanRelaySignalPin, HIGH);
-      circulationFanStatus = true;
-      Circulation_fanStatus = "ON";
-      ledcWrite(circulationFanChannel, 50);
-      fanSpeed = 50;
-    }
+  // if (hr >= 10 && hr <= 19)
 
-    else if (currentTemp > 27 && currentTemp < 29)
-    {
-      ledcWrite(circulationFanChannel, 100);
-      fanSpeed = 100;
-    }
+  // if (currentTemp > 25 && currentTemp < 27)
+  // {
+  //   digitalWrite(fanRelaySignalPin, HIGH);
+  //   circulationFanStatus = true;
+  //   Circulation_fanStatus = "ON";
+  //   ledcWrite(circulationFanChannel, 50);
+  //   fanSpeed = 50;
+  // }
 
-    else if (currentTemp >= 30)
-    {
-      ledcWrite(circulationFanChannel, 190);
-      fanSpeed = 190;
-    }
+  // else if (currentTemp > 27 && currentTemp <= 29)
+  // {
+  //   digitalWrite(fanRelaySignalPin, HIGH);
+  //   circulationFanStatus = true;
+  //   Circulation_fanStatus = "ON";
+  //   ledcWrite(circulationFanChannel, 100);
+  //   fanSpeed = 75;
+  // }
 
-    else if (currentTemp <= 25)
-    {
-      digitalWrite(fanRelaySignalPin, LOW);
-      circulationFanStatus = false;
-      Circulation_fanStatus = "OFF";
-      fanSpeed = 0;
-    }
+  // else if (currentTemp > 29)
+  // {
+  //   digitalWrite(fanRelaySignalPin, HIGH);
+  //   circulationFanStatus = true;
+  //   Circulation_fanStatus = "ON";
+  //   ledcWrite(circulationFanChannel, 190);
+  //   fanSpeed = 190;
+  // }
 
-    else if (voltage <= 12.1)
-    {
+  // else if (currentTemp <= 25)
+  // {
+  //   digitalWrite(fanRelaySignalPin, LOW);
+  //   circulationFanStatus = false;
+  //   Circulation_fanStatus = "OFF";
+  //   fanSpeed = 0;
+  //}
 
-      digitalWrite(fanRelaySignalPin, HIGH);
-      circulationFanStatus = true;
-      Circulation_fanStatus = "ON - low sunlight mode";
-      ledcWrite(circulationFanChannel, 50);
-      fanSpeed = 50;
-    }
-  }
+  // if ((hr > 19) || (hr < 10))
 
-  if ((hr > 19) || (hr < 10))
-
-  {
-    digitalWrite(fanRelaySignalPin, LOW);
-    circulationFanStatus = false;
-    Circulation_fanStatus = "OFF";
-    fanSpeed = 0;
-  }
+  // {
+  //   digitalWrite(fanRelaySignalPin, LOW);
+  //   circulationFanStatus = false;
+  //   Circulation_fanStatus = "OFF";
+  //   fanSpeed = 0;
+  // }
 
   fanSpeed = (fanSpeed) / 255 * 100; // Show duty as a %age
 }
@@ -439,6 +446,16 @@ void checkTempHumid() // Get Temp & Humidity Data
 
     averageDailyTemp = (tempRunningTotal / count);      // update average daily temp every min
     averageDailyHumidity = (humidRunningTotal / count); // update average daily humidity every min
+  }
+
+  if (currentTemp > maxTemp) // record max temp
+  {
+    maxTemp = currentTemp;
+  }
+
+  if (currentTemp < minTemp) // record min temp
+  {
+    minTemp = currentTemp;
   }
 
   if (dy != nowDy) // midinght reset hour counter
@@ -491,19 +508,19 @@ void checkTempHumid() // Get Temp & Humidity Data
 
 //---------------------------------------------
 
-void readPvVoltage()
-{
+// void readPvVoltage()
+// {
 
-  voltage = analogRead(33); // Voltage at pin as analoge value
+//   voltage = analogRead(33); // Voltage at pin as analoge value
 
-  voltage = (-0.000000000000016 * pow(voltage, 4) + 0.000000000118171 * pow(voltage, 3) - 0.000000301211691 * pow(voltage, 2) + 0.001109019271794 * voltage + 0.034143524634089); // Voltage at pin using polynomial equation to adjust ESP32 ADC linearity for better accuracy
+//   voltage = (-0.000000000000016 * pow(voltage, 4) + 0.000000000118171 * pow(voltage, 3) - 0.000000301211691 * pow(voltage, 2) + 0.001109019271794 * voltage + 0.034143524634089); // Voltage at pin using polynomial equation to adjust ESP32 ADC linearity for better accuracy
 
-  voltage = (4095 / 3.3) * voltage; // Convert adjusted voltage back to analoge value
+//   voltage = (4095 / 3.3) * voltage; // Convert adjusted voltage back to analoge value
 
-  voltage = (voltage) / 4095 * 30 * 247.191 / 220; // Convert to PV voltage
+//   voltage = (voltage) / 4095 * 30 * 247.191 / 220; // Convert to PV voltage
 
-  stateOfCharge(voltage);
-}
+//   stateOfCharge(voltage);
+// }
 
 //---------------------------------------------
 
@@ -574,72 +591,72 @@ void checkWiFiStaus()
   if ((WiFi.status() != WL_CONNECTED))
   {
     WiFi.disconnect();
-    WiFi.reconnect();
+    wifiSetup();
   }
 }
 
-int stateOfCharge(double voltage)
-{
+// int stateOfCharge(double voltage)
+// {
 
-  if (voltage >= 12.7)
-  {
+//   if (voltage >= 12.7)
+//   {
 
-    stateOfChargeValue = 100;
-  }
+//     stateOfChargeValue = 100;
+//   }
 
-  else if (voltage < 12.7 && voltage >= 12.62)
-  {
+//   else if (voltage < 12.7 && voltage >= 12.62)
+//   {
 
-    stateOfChargeValue = 90;
-  }
+//     stateOfChargeValue = 90;
+//   }
 
-  else if (voltage < 12.62 && voltage >= 12.50)
-  {
+//   else if (voltage < 12.62 && voltage >= 12.50)
+//   {
 
-    stateOfChargeValue = 80;
-  }
+//     stateOfChargeValue = 80;
+//   }
 
-  else if (voltage < 12.50 && voltage >= 12.37)
-  {
+//   else if (voltage < 12.50 && voltage >= 12.37)
+//   {
 
-    stateOfChargeValue = 70;
-  }
+//     stateOfChargeValue = 70;
+//   }
 
-  else if (voltage < 12.37 && voltage >= 12.24)
-  {
+//   else if (voltage < 12.37 && voltage >= 12.24)
+//   {
 
-    stateOfChargeValue = 60;
-  }
+//     stateOfChargeValue = 60;
+//   }
 
-  else if (voltage < 12.24 && voltage >= 12.10)
-  {
+//   else if (voltage < 12.24 && voltage >= 12.10)
+//   {
 
-    stateOfChargeValue = 50;
-  }
+//     stateOfChargeValue = 50;
+//   }
 
-  else if (voltage < 12.10 && voltage >= 11.96)
-  {
+//   else if (voltage < 12.10 && voltage >= 11.96)
+//   {
 
-    stateOfChargeValue = 40;
-  }
+//     stateOfChargeValue = 40;
+//   }
 
-  else if (voltage < 11.96 && voltage >= 11.81)
-  {
+//   else if (voltage < 11.96 && voltage >= 11.81)
+//   {
 
-    stateOfChargeValue = 30;
-  }
+//     stateOfChargeValue = 30;
+//   }
 
-  else if (voltage < 11.81 && voltage >= 11.66)
-  {
+//   else if (voltage < 11.81 && voltage >= 11.66)
+//   {
 
-    stateOfChargeValue = 20;
-  }
+//     stateOfChargeValue = 20;
+//   }
 
-  else if (voltage < 11.66)
-  {
+//   else if (voltage < 11.66)
+//   {
 
-    stateOfChargeValue = 10;
-  }
+//     stateOfChargeValue = 10;
+//   }
 
-  return stateOfChargeValue;
-}
+//   return stateOfChargeValue;
+// }
